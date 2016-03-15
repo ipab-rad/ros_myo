@@ -180,8 +180,12 @@ class MyoRaw(object):
     '''Implements the Myo-specific communication protocol.'''
 
     def __init__(self, tty=None):
+        rospy.logdebug("Namespace:%s" % rospy.get_namespace())
+        self.top_myo = rospy.get_param('/ros_myo/top')
+        self.low_myo = rospy.get_param('/ros_myo/low')
+        self.myo_port = rospy.get_param('port')
         if tty is None:
-            tty = self.detect_tty()
+            tty = self.myo_port
         if tty is None:
             raise ValueError('Myo dongle not found!')
 
@@ -192,14 +196,15 @@ class MyoRaw(object):
         self.arm_handlers = []
         self.pose_handlers = []
         self.vibration_requested = None
+        self.myo_name = ""
 
-    def detect_tty(self):
-        for p in comports():
-            if re.search(r'PID=2458:0*1', p[2]):
-                print('using device:', p[0])
-                return p[0]
-
-        return None
+    # def detect_tty(self):
+        # for p in comports():
+        #     rospy.logdebug('ComPorts:', p[0], p[1], p[2])
+        #     if re.search(r'PID=2458:0*1', p[2]):
+        #         rospy.logdebug('using device:', p[0])
+        #         return p[0]
+        # return '/dev/ttyACM1'
 
     def run(self, timeout=None):
         self.bt.recv_packet(timeout)
@@ -215,11 +220,11 @@ class MyoRaw(object):
         self.bt.disconnect(2)
 
         ## start scanning
-        print('scanning...')
+        rospy.logdebug('scanning...')
         self.bt.discover()
         while True:
             p = self.bt.recv_packet()
-            print('scan response:', p)
+            # rospy.logdebug('scan response:', p)
 
             if p.payload.endswith(b'\x06\x42\x48\x12\x4A\x7F\x2C\x48\x47\xB9\xDE\x04\xA9\x01\x00\x06\xD5'):
                 addr = list(multiord(p.payload[2:8]))
@@ -234,7 +239,7 @@ class MyoRaw(object):
         ## get firmware version
         fw = self.read_attr(0x17)
         _, _, _, _, v0, v1, v2, v3 = unpack('BHBBHHHH', fw.payload)
-        print('firmware version: %d.%d.%d.%d' % (v0, v1, v2, v3))
+        rospy.logdebug('firmware version: %d.%d.%d.%d' % (v0, v1, v2, v3))
 
         self.old = (v0 == 0)
 
@@ -269,7 +274,20 @@ class MyoRaw(object):
 
         else:
             name = self.read_attr(0x03)
-            print('device name: %s' % name.payload)
+            rospy.loginfo('device name:%s' % name.payload)
+            self.myo_name = name.payload.split(' ', 2)[0] # Get Colour Name
+            self.myo_name = self.myo_name.strip('\t\00\03\07')
+
+            if (self.myo_name == self.top_myo):
+                self.top_low = True
+                self.myo_ns = '/top_myo/'
+            elif (self.myo_name == self.low_myo):
+                self.top_low = False
+                self.myo_ns = '/low_myo/'
+            else:
+                rospy.logerr('ERROR: Myo %s was not set as top or low!' % self.myo_name)
+                rospy.signal_shutdown('ERROR')
+
 
             ## enable IMU data
             self.write_attr(0x1d, b'\x01\x00')
@@ -311,7 +329,7 @@ class MyoRaw(object):
                 elif typ == 3: # pose
                     self.on_pose(Pose(val))
             else:
-                print('data with unknown attr: %02X %s' % (attr, p))
+                rospy.logwarn('data with unknown attr: %02X %s' % (attr, p))
 
         self.bt.add_handler(handle_data)
 
@@ -374,26 +392,29 @@ class MyoRaw(object):
             h(arm, xdir)
 
 if __name__ == '__main__':
+    rospy.init_node('raw', log_level=rospy.INFO)
     # Start by initializing the Myo and attempting to connect.
     # If no Myo is found, we attempt to reconnect every 0.5 seconds
     connected = 0;
-    print("Initializing...")
+    rospy.logdebug("Initializing...")
     while(connected == 0):
         try:
-            m = MyoRaw(sys.argv[1] if len(sys.argv) >= 2 else None)
+            m = MyoRaw()
             connected = 1;
         except (ValueError, KeyboardInterrupt) as e:
-            print("Myo Armband not found. Attempting to connect...")
+            rospy.logwarn("Myo Armband not found. Attempting to connect...")
             rospy.sleep(0.5)
             pass
 
-    rospy.init_node('myo_raw', anonymous=True)
+    m.connect()
+
+    rospy.loginfo("Connecting to %s using %s as %s", m.myo_name, m.myo_port, m.myo_ns)
 
     # Define Publishers
-    imuPub = rospy.Publisher('myo_imu', Imu, queue_size=10)
-    emgPub = rospy.Publisher('myo_emg', EmgArray, queue_size=10)
-    armPub = rospy.Publisher('myo_arm', MyoArm, queue_size=10)
-    gestPub = rospy.Publisher('myo_gest', UInt8, queue_size=10)
+    imuPub = rospy.Publisher(m.myo_ns + 'imu', Imu, queue_size=10)
+    emgPub = rospy.Publisher(m.myo_ns + 'emg', EmgArray, queue_size=10)
+    armPub = rospy.Publisher(m.myo_ns + 'arm', MyoArm, queue_size=10)
+    gestPub = rospy.Publisher(m.myo_ns + 'gesture', UInt8, queue_size=10)
 
 
     # Package the EMG data into an EmgArray
@@ -404,7 +425,7 @@ if __name__ == '__main__':
         ## print framerate of received data
         times.append(time.time())
         if len(times) > 20:
-            #print((len(times) - 1) / (times[-1] - times[0]))
+            #rospy.logwarn((len(times) - 1) / (times[-1] - times[0]))
             times.pop(0)
     # Package the IMU data into an Imu message
     def proc_imu(quat1, acc, gyro):
@@ -442,15 +463,14 @@ if __name__ == '__main__':
     m.add_arm_handler(proc_arm)
     m.add_pose_handler(proc_pose)
 
-    m.connect()
 
 # Add a way to vibrate
     def vibrate_cb(data):
-        print("Received vibrate msg: " + str(data))
+        rospy.logdebug("Received vibrate msg: " + str(data))
         # This will be checked on every m.run() call
         m.vibration_requested = data.data
 
-    vibSubs = rospy.Subscriber('myo_vib', UInt8, vibrate_cb, queue_size=10)
+    vibSubs = rospy.Subscriber(m.myo_ns + 'vib', UInt8, vibrate_cb, queue_size=10)
 
     try:
         while not rospy.is_shutdown():
@@ -459,7 +479,5 @@ if __name__ == '__main__':
     except (rospy.ROSInterruptException, serial.serialutil.SerialException) as e:
         pass
     finally:
-        print()
-        print("Disconnecting...")
+        rospy.loginfo("Disconnecting...")
         m.disconnect()
-        print()
