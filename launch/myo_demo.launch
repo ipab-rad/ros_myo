@@ -1,7 +1,7 @@
 <launch>
 
-  <param name="ros_myo/top" value="Ram" />
-  <param name="ros_myo/low" value="Black" />
+  <param name="ros_myo/top" value="Black" />
+  <param name="ros_myo/low" value="White" />
 
   <node pkg="ros_myo" name="imu_rpy" type="imu_to_rpy.py" output="screen" ns="top_myo" respawn="true" clear_params="true" />
   <node pkg="ros_myo" name="imu_rpy" type="imu_to_rpy.py" output="screen" ns="low_myo" respawn="true" clear_params="true" />

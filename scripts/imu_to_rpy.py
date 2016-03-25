@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import rospy
+import math
 from std_msgs.msg import Float64MultiArray
 from sensor_msgs.msg import Imu
 from tf.transformations import euler_from_quaternion
@@ -24,9 +25,10 @@ class ImuToRpy():
                                                  data.orientation.z,
                                                  data.orientation.w])
         rpy_msg = Vector3()
-        rpy_msg.x = roll
-        rpy_msg.y = pitch
-        rpy_msg.z = yaw
+        # They are given in the wrong order for some reason
+        rpy_msg.x = (roll / math.pi) * 180
+        rpy_msg.y = (pitch / math.pi) * 180
+        rpy_msg.z = (yaw / math.pi) * 180
         self.rpy_pub.publish(rpy_msg)
 
 

@@ -183,7 +183,7 @@ class MyoRaw(object):
         rospy.logdebug("Namespace:%s" % rospy.get_namespace())
         self.top_myo = rospy.get_param('/ros_myo/top')
         self.low_myo = rospy.get_param('/ros_myo/low')
-        self.myo_port = rospy.get_param('port')
+        self.myo_port = rospy.get_param('ros_myo/port')
         if tty is None:
             tty = self.myo_port
         if tty is None:
@@ -357,10 +357,21 @@ class MyoRaw(object):
         self.write_attr(0x19, b'\x01\x03\x01\x01\x01')
 
     def vibrate(self, length):
-        if length in xrange(1, 4):
+        # if length in xrange(1, 3):
             ## first byte tells it to vibrate; purpose of second byte is unknown
-            self.write_attr(0x19, pack('3B', 3, 1, length))
+            # self.write_attr(0x19, pack('3B', 3, 1, length))
 
+        self.write_attr(0x19, pack('20B', 7, 18, 0, 200, 255, 0, 200, 255, 0, 200, 255, 0, 200, 255, 0, 200, 255, 0, 200, 255))
+        # self.write_attr(0x19, pack('3B', 0, 200, 255))
+        # self.write_attr(0x19, pack('3B', 0, 200, 255))
+        # self.write_attr(0x19, pack('3B', 0, 200, 255))
+        # self.write_attr(0x19, pack('3B', 0, 200, 255))
+        # self.write_attr(0x19, pack('3B', 0, 200, 255))
+        # self.write_attr(0x19, pack('3B', 0, 200, 255))
+
+    def set_sleep_mode(self, mode):
+        if mode in [0, 1]:
+            self.write_attr(0x19, pack('3B', 9, 1, mode))
 
     def add_emg_handler(self, h):
         self.emg_handlers.append(h)
@@ -407,6 +418,7 @@ if __name__ == '__main__':
             pass
 
     m.connect()
+    m.set_sleep_mode(1)
 
     rospy.loginfo("Connecting to %s using %s as %s", m.myo_name, m.myo_port, m.myo_ns)
 
